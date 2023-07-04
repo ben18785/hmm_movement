@@ -1,0 +1,38 @@
+---
+title: "Dirichlet distribution"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(DirichletReg)
+
+n <- 200
+```
+
+```{r}
+xs <- rdirichlet(n, c(1,1,1))
+pdf("../figures/dirichlet_distribution_1.pdf")
+plot(DR_data(xs),
+     a2d = list(colored = TRUE),
+     dim.labels=c(expression(p[1]),expression(p[2]),expression(p[3])), cex=2)
+dev.off()
+```
+
+```{r}
+xs <- rdirichlet(n, c(5,5,5))
+pdf("../figures/dirichlet_distribution_3.pdf")
+plot(DR_data(xs),
+     a2d = list(colored = TRUE),
+     dim.labels=c(expression(p[1]),expression(p[2]),expression(p[3])), cex=2)
+dev.off()
+```
+
+```{r}
+xs <- rdirichlet(n, c(1,5,1))
+pdf("../figures/dirichlet_distribution_2.pdf")
+plot(DR_data(xs),
+     a2d = list(colored = TRUE),
+     dim.labels=c(expression(p[1]),expression(p[2]),expression(p[3])), cex=2)
+dev.off()
+```

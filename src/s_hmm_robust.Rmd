@@ -1,0 +1,158 @@
+---
+title: "Robust HMMs"
+output: html_notebook
+---
+
+Code to generate state vectors
+```{r}
+library(rstan)
+options(mc.cores=4)
+rstan_options("auto_write" = TRUE)
+library(tidyverse)
+
+select_new_state <- function(transition_probs) {
+  draw <- rmultinom(1, 1, transition_probs)
+  which(draw==1)
+}
+
+simulate_hmm_states <- function(n_steps, state_initial, m_transition_probs) {
+  states <- vector(length = n_steps)
+  state <- state_initial
+  for(i in 1:n_steps) {
+    transition_probs <- m_transition_probs[state, ]
+    state <- select_new_state(transition_probs)
+    states[i] <- state
+  }
+  states
+}
+
+optimise_repeat <- function(n_opt, model, data_stan) {
+  best_val <- -Inf
+  for(i in 1:n_opt) {
+    fit <- optimizing(model, data=data_stan, as_vector=FALSE)
+    val <- fit$value
+    if(val > best_val) {
+      best_val <- val
+      fit_best <- fit
+    }
+  }
+  fit_best
+}
+```
+
+Generate observations from a (1 - w) * normal + w * student_t
+```{r}
+r_student_t <- function(mu, sigma, df) {
+  mu + sigma * rt(n = 1, df = df) #/ sqrt(df / (df - 2))
+}
+
+tainted_normal <- function(w, mu, sigma, df) {
+  
+  u <- runif(1)
+  if(u < w)
+    x <- r_student_t(mu, sigma, df)
+  else
+    x <- rnorm(1, mu, sigma)
+  
+  x
+}
+
+generate_emissions <- function(states, w, mus, sigmas, dfs) {
+  xs <- vector(length = length(states))
+  for(i in seq_along(xs))
+    xs[i] <- tainted_normal(
+      w, mus[states[i]], sigmas[states[i]], dfs[states[i]])
+  
+  xs
+}
+
+simulate_hmm <- function(n_steps,
+                         state_initial,
+                         m_transition_probs,
+                         w, mus, sigmas, dfs) {
+  
+  states <- simulate_hmm_states(n_steps, state_initial, m_transition_probs)
+  x <- generate_emissions(states, w, mus, sigmas, dfs)
+  
+  df <- tibble(state=states, obs=x) %>% 
+    mutate(time=seq_along(state)) %>% 
+    mutate(state=as.factor(state))
+  
+  df
+}
+
+mus <- c(1, 8)
+sigmas <- c(1, 1)
+dfs <- c(3, 3)
+K <- 2
+m_transition_probs <- matrix(c(0.9, 0.1, 0.1, 0.9), ncol = 2)
+
+n_steps <- 1000
+df <- simulate_hmm(n_steps, 1, m_transition_probs, 0.1, mus, sigmas, dfs)
+
+df %>% 
+  ggplot(aes(x=time, y=obs)) +
+  geom_line() +
+  geom_point(aes(colour=state))
+```
+
+Fit models
+```{r}
+model_normal <- stan_model("hmm.stan")
+model_student_t <- stan_model("hmm_student_t.stan")
+model_robust <- stan_model("hmm_beta_divergence.stan")
+
+data_stan <- list(
+  N=nrow(df),
+  dist=df$obs,
+  K=2,
+  beta=0.1
+  )
+
+n_opt <- 2
+fit_normal <- optimise_repeat(n_opt, model_normal, data=data_stan)
+fit_student_t <- optimise_repeat(n_opt, model_student_t, data=data_stan)
+fit_robust <- optimise_repeat(n_opt, model_robust, data=data_stan)
+
+df <- df %>% 
+  mutate(normal=fit_normal$par$state,
+         student_t=fit_student_t$par$state,
+         robust=fit_robust$par$state) %>% 
+  mutate(normal=as.factor(normal),
+         student_t=as.factor(student_t),
+         robust=as.factor(robust))
+
+df %>% 
+  pivot_longer(-c("time", "obs")) %>% 
+  ggplot(aes(x=time, y=obs)) +
+  geom_line() +
+  geom_point(aes(colour=value)) +
+  facet_wrap(~name)
+```
+Look at purity of state estimation
+```{r}
+mean(df$state==df$normal)
+mean(df$state==df$robust)
+mean(df$state==df$student_t)
+```
+
+Optimal K
+```{r}
+find_optimal_k <- function(n_opt, base_parameters, model, data_stan, ks=2:4) {
+  bics <- vector(length = length(ks))
+  for(i in seq_along(bics)){
+    K <- ks[i]
+    data_stan$K <- K 
+    fit <- optimise_repeat(n_opt, model_normal, data=data_stan)
+    log_like <- fit$par$log_p;
+    num_parameters <- K * base_parameters + K * (K - 1)
+    bics[i] <- 2 * log_like - num_parameters * log(data_stan$N)
+  }
+  bics
+}
+
+ks <- seq(2, 4, 1)
+aics_normal <- find_optimal_k(5, 3, model_student_t, data_stan, ks=ks)
+plot(ks, aics_normal)
+```
+

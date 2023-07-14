@@ -61,9 +61,8 @@ generated quantities {
     log_p_y_star = max(best_logp[N]);
     for (k in 1:K)
       if (best_logp[N, k] == log_p_y_star)
-      state[N] = k;
+        state[N] = k;
       for (t in 1:(N - 1))
-      state[N - t] = back_ptr[N - t + 1,
-      state[N - t + 1]];
+        state[N - t] = back_ptr[N - t + 1, state[N - t + 1]];
   }
 }

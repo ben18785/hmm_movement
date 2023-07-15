@@ -362,6 +362,30 @@ df_1 %>%
   geom_line() +
   facet_wrap(~name, scales="free")
 ```
+
+Plot raw data
+```{r}
+g <- df_1 %>% 
+  select(time, dist, angle) %>% 
+  rename(Distance=dist, Angle=angle) %>% 
+  pivot_longer(-time) %>% 
+  slice(1:1000) %>% 
+  ggplot(aes(x=time, y=value)) +
+  geom_line() +
+  facet_wrap(~name, scales="free") +
+  xlab("Time") +
+  ylab("") +
+  theme(
+    strip.text=element_text(size=14),
+    axis.title = element_text(size=14),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14)
+  )
+g
+ggsave("../figures/angle_dist_separate_raw.pdf", g, width = 8, height = 4)
+```
+
+
 Fit normal model
 ```{r}
 data_stan <- list(
@@ -375,6 +399,7 @@ data_stan <- list(
 )
 model <- stan_model("hmm_wrapped_cauchy.stan")
 fit <- optimise_repeat(5, model, data_stan)
+fit_n <- fit
 
 df_1 %>% 
   select(time, dist, angle) %>% 
@@ -386,13 +411,25 @@ df_1 %>%
 ```
 
 ```{r}
-df_1 %>% 
+g <- df_1 %>% 
   select(time, dist, angle) %>% 
+  rename(Distance=dist, Angle=angle) %>% 
   mutate(state=as.factor(fit$par$state)) %>% 
   pivot_longer(-c(time, state)) %>% 
   ggplot(aes(x=value, fill=state)) +
-  stat_density(position="identity", alpha=0.3) +
-  facet_wrap(~name, scales="free")
+  stat_density(position="identity", alpha=0.5) +
+  scale_fill_brewer("State", palette = "Dark2") +
+  facet_wrap(~name, scales="free") +
+  xlab("") +
+  ylab("Density") +
+  theme(
+    strip.text=element_text(size=14),
+    axis.title = element_text(size=14),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14)
+  )
+g
+ggsave("../figures/angle_dist_separate_standard.pdf", g, width = 8, height = 4)
 ```
 
 Using rubbish collector
@@ -408,6 +445,7 @@ data_stan <- list(
 )
 model <- stan_model("hmm_bernoulli_wrapped_cauchy.stan")
 fit <- optimise_repeat(2, model, data_stan)
+fit_r <- fit
 
 df_1 %>% 
   select(time, dist, angle) %>% 
@@ -423,14 +461,23 @@ df_1 %>%
 ```{r}
 g <- df_1 %>% 
   select(time, dist, angle) %>% 
+  rename(Distance=dist, Angle=angle) %>% 
   mutate(state=as.factor(fit$par$state)) %>% 
   pivot_longer(-c(time, state)) %>% 
   ggplot(aes(x=value, fill=state)) +
   stat_density(position="identity", alpha=0.5) +
   scale_fill_brewer("State", palette = "Dark2") +
-  facet_wrap(~name, scales="free")
+  facet_wrap(~name, scales="free") +
+  xlab("") +
+  ylab("Density") +
+  theme(
+    strip.text=element_text(size=14),
+    axis.title = element_text(size=14),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14)
+  )
 g
-ggsave("../figures/angle_dist_separate_rubbish.pdf", g, width = 10, height = 4)
+ggsave("../figures/angle_dist_separate_rubbish.pdf", g, width = 8, height = 4)
 ```
 
 
@@ -443,9 +490,15 @@ g <- df_1 %>%
   scale_colour_brewer("State", palette = "Dark2") +
   xlab("Distance") +
   ylab("Angle") +
-  facet_wrap(~state)
+  facet_wrap(~state) +
+  theme(
+    strip.text=element_text(size=14),
+    axis.title = element_text(size=14),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14)
+  )
 g
-ggsave("../figures/angle_dist_2d_rubbish.pdf", g, width = 10, height = 4)
+ggsave("../figures/angle_dist_2d_rubbish.pdf", g, width = 8, height = 4)
 ```
 
 ```{r}
@@ -454,5 +507,128 @@ df_1 %>%
   mutate(state=as.factor(fit$par$state)) %>% 
   ggplot(aes(x=dist, y=angle)) +
   geom_density_2d(aes(color=state))
+```
+
+Get higher correlations between states and covariates when using cleaned states
+```{r}
+df_1a <- df_1 %>% 
+  mutate(state=fit_r$par$state) %>% 
+  filter(state != 3) %>% 
+  select(state, field, river, trees, timeofday, corridor, season)
+
+a <- cor(df_1a)
+
+df_1b <- df_1 %>% 
+  mutate(state=fit_n$par$state) %>% 
+  filter(state != 3) %>% 
+  select(state, field, river, trees, timeofday, corridor, season)
+
+b <- cor(df_1b)
+
+tibble(new=a[, 1], old=b[, 1]) %>% 
+  mutate(variable=names(a[, 1])) %>% 
+  dplyr::filter(variable != "state") %>% 
+  pivot_longer(-variable) %>% 
+  ggplot(aes(x=variable, y=value, fill=name)) +
+  geom_col(position=position_dodge2())
+```
+
+Is this generally true?
+```{r}
+plot_angle_distance <- function(df_1, fit) {
+  df_1 %>% 
+  select(time, dist, angle) %>% 
+  rename(Distance=dist, Angle=angle) %>% 
+  mutate(state=as.factor(fit$par$state)) %>% 
+  pivot_longer(-c(time, state)) %>% 
+  ggplot(aes(x=value, fill=state)) +
+  stat_density(position="identity", alpha=0.5) +
+  scale_fill_brewer("State", palette = "Dark2") +
+  facet_wrap(~name, scales="free") +
+  xlab("") +
+  ylab("Density") +
+  theme(
+    strip.text=element_text(size=14),
+    axis.title = element_text(size=14),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14)
+  )
+}
+
+fit_plot_compare_models <- function(df, num_rows, a_id) {
+
+  df_1 <- df %>% 
+    filter(id == a_id) %>% 
+    mutate(dist = dist /max(dist)) %>% 
+    mutate(time=seq_along(x)) %>% 
+    slice(1:num_rows)
+  
+  data_stan <- list(
+    N=nrow(df_1),
+    dist=df_1$dist,
+    angle=df_1$angle,
+    K=2,
+    cost=10,
+    p_anomalous=0.01,
+    conc_anomalous=100
+  )
+  model <- stan_model("hmm_wrapped_cauchy.stan")
+  fit <- optimise_repeat(2, model, data_stan)
+  fit_n <- fit
+  
+  data_stan <- list(
+    N=nrow(df_1),
+    dist=df_1$dist,
+    angle=df_1$angle,
+    K=2,
+    cost=0.5,
+    p_anomalous=0.1,
+    conc_anomalous=10
+  )
+  model <- stan_model("hmm_bernoulli_wrapped_cauchy.stan")
+  fit <- optimise_repeat(2, model, data_stan)
+  fit_r <- fit
+  
+  g1 <- plot_angle_distance(df_1, fit_n)
+  g2 <- plot_angle_distance(df_1, fit_r)
+  
+  df_1a <- df_1 %>% 
+    mutate(state=fit_r$par$state) %>% 
+    filter(state != 3) %>% 
+    select(state, field, river, trees, timeofday, corridor, season)
+  
+  a <- cor(df_1a)
+  
+  df_1b <- df_1 %>% 
+    mutate(state=fit_n$par$state) %>% 
+    filter(state != 3) %>% 
+    select(state, field, river, trees, timeofday, corridor, season)
+  
+  b <- cor(df_1b)
+  
+  df_new <- tibble(new=a[, 1], old=b[, 1]) %>% 
+    mutate(variable=names(a[, 1]))
+  
+  g3 <- df_new %>% 
+    dplyr::filter(variable != "state") %>% 
+    pivot_longer(-variable) %>% 
+    ggplot(aes(x=variable, y=value, fill=name)) +
+    geom_col(position=position_dodge2())
+  
+  list(g1=g1, g2=g2, g3=g3, df=df_new)
+}
+
+g1 <- fit_plot_compare_models(df, 10000, 1)
+g2 <- fit_plot_compare_models(df, 10000, 2)
+g3 <- fit_plot_compare_models(df, 10000, 3)
+g4 <- fit_plot_compare_models(df, 10000, 4)
+g5 <- fit_plot_compare_models(df, 10000, 5)
+
+g1
+g2
+g3
+g4
+g5
+
 ```
 

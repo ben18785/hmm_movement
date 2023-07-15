@@ -1,0 +1,54 @@
+---
+title: "Dirichlet process HMMs"
+output: html_notebook
+---
+
+```{r}
+library(dirichletprocess)
+library(tidyverse)
+
+x <- read.csv("../data/hmm_test.csv", header = FALSE)
+
+x <- x %>% 
+  slice(1:nrow(x))
+
+dp_1 <- DirichletProcessGaussian(
+  scale(x$V2), alphaPriors = c(4, 4))
+dp_2 <- DirichletProcessGaussian(
+  scale(x$V2), alphaPriors = c(4, 4))
+dp_1 <- Initialise(dp_1, numInitialClusters = 1)
+dp_2 <- Initialise(dp_2, numInitialClusters = 10)
+dp_3 <- Initialise(dp_2, numInitialClusters = 5)
+dp_4 <- Initialise(dp_2, numInitialClusters = 3)
+
+n_iter <- 2000
+dp_1 <- Fit(dp_1, n_iter)
+dp_2 <- Fit(dp_2, n_iter)
+dp_3 <- Fit(dp_3, n_iter)
+dp_4 <- Fit(dp_4, n_iter)
+
+n_clusters_1 <- map_dbl(dp_1$labelsChain, ~max(.))
+n_clusters_2 <- map_dbl(dp_2$labelsChain, ~max(.))
+n_clusters_3 <- map_dbl(dp_3$labelsChain, ~max(.))
+n_clusters_4 <- map_dbl(dp_4$labelsChain, ~max(.))
+
+g <- tibble(n1=n_clusters_1, n2=n_clusters_2,
+       n3=n_clusters_3, n4=n_clusters_4) %>% 
+  mutate(iter=seq_along(n1)) %>% 
+  pivot_longer(-iter) %>% 
+  filter(iter <= 200) %>% 
+  ggplot(aes(x=iter, y=value, colour=name)) +
+  geom_line() +
+  theme(legend.position = "none") +
+  scale_color_brewer(palette = "Dark2") +
+  ylab("# of states") +
+  xlab("# of iterations") +
+  scale_y_continuous(breaks=seq(1, 17, 2)) +
+  theme(
+    axis.title = element_text(size=14),
+    axis.text = element_text(size=14)
+  )
+g
+ggsave("../figures/mcmc_convergence_states.pdf", g, width = 8, height = 4)
+```
+

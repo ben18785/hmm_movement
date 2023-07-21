@@ -525,12 +525,21 @@ df_1b <- df_1 %>%
 
 b <- cor(df_1b)
 
-tibble(new=a[, 1], old=b[, 1]) %>% 
+g <- tibble(rubbish=a[, 1], original=b[, 1]) %>% 
   mutate(variable=names(a[, 1])) %>% 
   dplyr::filter(variable != "state") %>% 
   pivot_longer(-variable) %>% 
   ggplot(aes(x=variable, y=value, fill=name)) +
-  geom_col(position=position_dodge2())
+  geom_col(position=position_dodge2()) +
+  scale_fill_brewer("Model", palette="Dark2") +
+  ylab("Correlation") +
+  xlab("Covariate") +
+  theme(axis.title=element_text(size=14),
+        legend.title = element_text(size=14),
+        legend.text=element_text(size=14),
+        axis.text=element_text(size=14))
+
+ggsave("../figures/angle_dist_correlations.pdf", g, width = 8, height = 4)
 ```
 
 Is this generally true?

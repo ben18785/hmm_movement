@@ -1,0 +1,138 @@
+---
+title: "Grey seal analysis"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(rstan)
+options(mc.cores=4)
+source("Coords_to_ThetaGamma.R")
+source("helper.R")
+
+greyseal <- read_csv("../data/greyseal.csv")
+```
+
+Calculate step sizes and angles
+```{r}
+delta = 3*60*60
+t0 = greyseal$date[[1]]
+tT = greyseal$date[length(greyseal$date)]
+t = seq(t0, tT, by=delta)
+sealLoc <- cbind(approx(greyseal$date, greyseal$lon, xout = t)$y,
+                 approx(greyseal$date, greyseal$lat, xout = t)$y)
+colnames(sealLoc)<- c("Lon","Lat")
+sealLoc<- as.data.frame(sealLoc)
+
+gamma.series<- sapply(2:(nrow(sealLoc)-1),
+                      function(t) distance.formula(x.last = sealLoc[t,],
+                                                   x.curr = sealLoc[t+1,],
+                                                   lat = 2,
+                                                   lon = 1)/
+                        distance.formula(x.last = sealLoc[t-1,],
+                                         x.curr = sealLoc[t,],
+                                         lat = 2,
+                                         lon = 1))
+angle.series<- sapply(2:(nrow(sealLoc)-1), function(t) deflection.angle.formula(x.last = sealLoc[t-1,],
+                                                                                x.curr = sealLoc[t,],
+                                                                                x.next = sealLoc[t+1,],
+                                                                                lat = 2,
+                                                                                lon = 1))
+```
+
+
+Convert angles to be between -pi and pi. Scale distances
+```{r}
+angles <- angle.series * pi / 180
+distances <- gamma.series / max(gamma.series)
+
+df <- tibble(angle=angles, distance=distances) %>% 
+  mutate(time=seq_along(angle))
+```
+
+Fit rubbish collector
+```{r}
+data_stan <- list(
+  N=length(angles),
+  dist=distances,
+  angle=angles,
+  K=2,
+  cost=10,
+  p_anomalous=0.01,
+  conc_anomalous=100
+)
+
+model <- stan_model("hmm_seal_rubbish.stan")
+
+fit <- optimise_repeat(2, model, data_stan)
+fit_r <- fit
+```
+
+Fit model without rubbish collection
+```{r}
+model <- stan_model("hmm_seal.stan")
+
+fit <- optimise_repeat(2, model, data_stan)
+fit_n <- fit
+```
+
+
+```{r}
+df_n <- df %>%
+  mutate(distance=sqrt(distance)) %>% 
+  mutate(state=as.factor(fit_n$par$state)) %>% 
+  pivot_longer(-c(time, state)) %>% 
+  mutate(model="original")
+df_r <- df %>%
+  mutate(distance=sqrt(distance)) %>% 
+  mutate(state=as.factor(fit_r$par$state)) %>% 
+  pivot_longer(-c(time, state)) %>% 
+  mutate(model="rubbish")
+df_both <- df_n %>% 
+  bind_rows(df_r)
+
+g1 <- df_r %>% 
+  ggplot(aes(x=value, fill=state)) +
+  stat_density(position="identity", alpha=0.5) +
+  scale_fill_brewer("State", palette = "Dark2") +
+  facet_wrap(~name, scales="free") +
+  xlab("") +
+  ylab("Density") +
+  theme(
+    legend.position = c(0.8, 0.5),
+    strip.text=element_text(size=14),
+    axis.title = element_text(size=14),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14)
+)
+ 
+g2 <- df_n %>% 
+  ggplot(aes(x=value, fill=state)) +
+  stat_density(position="identity", alpha=0.5) +
+  scale_fill_brewer("State", palette = "Dark2") +
+  facet_wrap(~name, scales="free") +
+  xlab("") +
+  ylab("Density") +
+  theme(
+    legend.position = c(0.8, 0.5),
+    strip.text=element_text(size=14),
+    axis.title = element_text(size=14),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14)
+)
+
+library(cowplot)
+g <- plot_grid(g2, g1, nrow=2, labels = c("original", "rubbish"))
+save_plot("../figures/seal_first_pass.pdf", g,
+          base_width = 10, base_height = 6)
+```
+
+```{r}
+mean(fit_r$par$state==3)
+```
+
+Plot on graph by state
+```{r}
+
+```
+
